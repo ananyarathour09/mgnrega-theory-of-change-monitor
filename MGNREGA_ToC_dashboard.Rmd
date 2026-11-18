@@ -1,0 +1,630 @@
+---
+title: "MGNREGA Theory of Change Monitor"
+subtitle: "Interactive programme-logic dashboard · 15 states · FY 2022-23 to 2025-26"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 2
+    self_contained: true
+    code_folding: none
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+suppressPackageStartupMessages({
+  library(readxl); library(dplyr); library(tidyr); library(plotly); library(DT)
+  library(htmltools); library(sandwich); library(scales)
+})
+
+# =====================================================================
+# 1. SETTINGS (the only part you need to touch)
+# =====================================================================
+data_file  <- "data/MGNREGA_Master_Dataset.xlsx"   # path to your Excel file
+include_wb <- FALSE        # West Bengal source data is flagged for review
+first_yr   <- "2022-23"    # base year for comparisons
+latest     <- "2025-26"    # latest year
+
+# =====================================================================
+# 2. LOAD DATA
+# =====================================================================
+data_file <- "~/Downloads/MGNREGA_Master_Dataset_15_States_2022-23_to_2025-26 (1).xlsx"
+
+d <- read_excel(data_file, sheet = "Master_Data")
+names(d) <- c("state","fy","B","PD","bp_src","sc","st","w","dph_src","wr","h100","hh","ind","da","nil",
+              "wt","wo","wc","mwc","catB","agri","rel","av","ut_src","ex","wg","mt","mp","ad","adp_src",
+              "acp","efms","p15")
+if (!include_wb) d <- filter(d, state != "West Bengal")
+nat_name <- "All states (weighted)"
+scope_label <- if (include_wb) "all 15 states" else "14 states (West Bengal excluded: flagged source data)"
+
+```
+
+```{r}
+# =====================================================================
+# 3. INDICATORS: sums for amounts, weighted means for rates
+# =====================================================================
+make_indicators <- function(df) {
+  df %>% summarise(
+    women = weighted.mean(w, PD), sc = weighted.mean(sc, PD), st = weighted.mean(st, PD),
+    wr = weighted.mean(wr, PD), acp = weighted.mean(acp, PD),
+    p15 = weighted.mean(p15, ex), efms = weighted.mean(efms, ex), agri = weighted.mean(agri, ex),
+    B = sum(B), PD = sum(PD), hh = sum(hh), ind = sum(ind), ex = sum(ex), av = sum(av), rel = sum(rel),
+    wg = sum(wg), mt = sum(mt), ad = sum(ad), wt = sum(wt), wo = sum(wo), wc = sum(wc),
+    h100 = sum(h100), nil = sum(nil), .groups = "drop") %>%
+    mutate(bp = PD / B * 100,            # budget achieved (%)
+           dph = PD / hh,                # average days per household
+           ut = ex / av * 100,           # fund utilisation (%)
+           adp = ad / ex * 100,          # administration share (%)
+           comp = wc / (wt * 1e5) * 100, # works completion rate (%)
+           h100s = h100 / (hh * 1e5) * 100, # households reaching 100 days (%)
+           scst = sc + st,
+           avCr = av / 100, relCr = rel / 100, wgCr = wg / 100, wcL = wc / 1e5,
+           wph = wg / hh)                # wages paid per household worked (Rs)
+}
+st_df  <- d %>% group_by(state, fy) %>% make_indicators()
+nat_df <- d %>% group_by(fy) %>% make_indicators()
+all_df <- bind_rows(st_df, mutate(nat_df, state = nat_name))
+n1 <- filter(nat_df, fy == first_yr); n2 <- filter(nat_df, fy == latest)
+
+# Metric dictionary: label, unit, decimals
+mt_tbl <- tribble(
+ ~key,    ~label,                              ~unit,              ~dig,
+ "B",     "Approved labour budget",            "lakh persondays",  0,
+ "avCr",  "Funds available",                   "Rs crore",         0,
+ "relCr", "Central release",                   "Rs crore",         0,
+ "wt",    "Works taken up",                    "lakh works",       1,
+ "wo",    "Ongoing works",                     "lakh works",       2,
+ "wcL",   "Completed works",                   "lakh works",       2,
+ "comp",  "Works completion rate",             "% of works taken up", 1,
+ "ut",    "Fund utilisation",                  "% of funds available", 1,
+ "nil",   "GPs with nil expenditure",          "count",            0,
+ "p15",   "Payments generated within 15 days", "% of expenditure", 1,
+ "efms",  "Spend through e-FMS",               "% of expenditure", 1,
+ "hh",    "Households worked",                 "lakh",             1,
+ "ind",   "Individuals worked",                "lakh",             1,
+ "PD",    "Persondays generated",              "lakh",             0,
+ "women", "Women share of persondays",         "%",                1,
+ "scst",  "SC + ST share of persondays",       "%",                1,
+ "sc",    "SC share of persondays",            "%",                1,
+ "st",    "ST share of persondays",            "%",                1,
+ "bp",    "Budget achieved",                   "% of approved",    1,
+ "dph",   "Average days per household",        "days",             1,
+ "h100s", "Households reaching 100 days",      "% of households worked", 1,
+ "adp",   "Administration share of spend",     "%",                1,
+ "acp",   "Cost per person-day",               "Rs",               0,
+ "wr",    "Average wage rate",                 "Rs per person-day", 0,
+ "wph",   "Wages paid per household worked",   "Rs",               0,
+ "wgCr",  "Wages paid",                        "Rs crore",         0,
+ "agri",  "Agriculture & allied works spend",  "% of expenditure", 1)
+
+# Colours
+blue <- "#2a78d6"; orange <- "#eb6834"; green <- "#1baf7a"; grey <- "#8a96a0"; ink <- "#14212b"
+state_levels <- sort(unique(st_df$state))
+pal <- setNames(scales::hue_pal(l = 52, c = 85)(length(state_levels)), state_levels)
+fy_lab <- function(x) paste("FY", x)
+fin <- function(p) p %>% config(displaylogo = FALSE, modeBarButtonsToRemove = c("lasso2d", "select2d")) %>%
+  layout(font = list(family = "Lato, Helvetica, Arial, sans-serif", size = 12),
+         legend = list(orientation = "h", y = -0.2), hoverlabel = list(align = "left"))
+
+```
+
+```{r}
+# =====================================================================
+# 4. REUSABLE CHART BUILDERS
+# =====================================================================
+# 4a. State explorer: one line per state, dropdown switches the indicator
+explorer <- function(keys, height = 480) {
+  m <- mt_tbl[match(keys, mt_tbl$key), ]
+  long <- all_df %>% select(state, fy, all_of(keys)) %>%
+    pivot_longer(all_of(keys), names_to = "key", values_to = "value")
+  sts <- c(state_levels, nat_name); ns <- length(sts)
+  p <- plot_ly(height = height)
+  for (i in seq_along(keys)) for (s in sts) {
+    dd <- filter(long, key == keys[i], state == s)
+    is_nat <- s == nat_name
+    p <- add_trace(p, data = dd, x = ~fy, y = ~value, type = "scatter", mode = "lines+markers",
+      name = s, legendgroup = s, showlegend = (i == 1), visible = (i == 1),
+      line = list(width = if (is_nat) 4.5 else 1.6, color = if (is_nat) ink else pal[[s]], dash = if (is_nat) "dash" else "solid"),
+      marker = list(size = if (is_nat) 9 else 6, color = if (is_nat) ink else pal[[s]]),
+      hovertemplate = paste0("<b>", s, "</b><br>FY %{x}<br>", m$label[i], ": %{y:,.", m$dig[i], "f} ", m$unit[i], "<extra></extra>"))
+  }
+  btn <- lapply(seq_along(keys), function(i) {
+    vis <- unlist(lapply(seq_along(keys), function(j) rep(j == i, ns)))
+    list(method = "update", label = m$label[i],
+         args = list(list(visible = vis), list(yaxis = list(title = paste0(m$label[i], " (", m$unit[i], ")")))))
+  })
+  p %>% layout(updatemenus = list(list(type = "dropdown", buttons = btn, x = 0, y = 1.13, xanchor = "left", yanchor = "top")),
+               xaxis = list(title = "", type = "category"), yaxis = list(title = paste0(m$label[1], " (", m$unit[1], ")")),
+               margin = list(t = 60)) %>% fin()
+}
+
+# 4b. State x year heatmap with a dropdown to switch the indicator
+heat <- function(keys, height = 520) {
+  m <- mt_tbl[match(keys, mt_tbl$key), ]
+  ord <- st_df %>% filter(fy == latest) %>% arrange(.data[[keys[1]]]) %>% pull(state)
+  p <- plot_ly(height = height)
+  for (i in seq_along(keys)) {
+    w <- st_df %>% select(state, fy, v = all_of(keys[i])) %>% pivot_wider(names_from = fy, values_from = v)
+    z <- as.matrix(w[match(ord, w$state), -1])
+    p <- add_heatmap(p, x = fy_lab(colnames(z)), y = ord, z = z, visible = (i == 1), colorscale = "Blues", reversescale = FALSE,
+      texttemplate = paste0("%{z:,.", m$dig[i], "f}"), textfont = list(size = 11),
+      hovertemplate = paste0("<b>%{y}</b><br>%{x}<br>", m$label[i], ": %{z:,.", m$dig[i], "f} ", m$unit[i], "<extra></extra>"),
+      colorbar = list(title = m$unit[i], len = 0.8))
+  }
+  btn <- lapply(seq_along(keys), function(i) list(method = "update", label = m$label[i],
+        args = list(list(visible = seq_along(keys) == i))))
+  p %>% layout(updatemenus = list(list(type = "dropdown", buttons = btn, x = 0, y = 1.12, xanchor = "left", yanchor = "top")),
+               yaxis = list(title = "", categoryorder = "array", categoryarray = ord), xaxis = list(title = "", side = "bottom"),
+               margin = list(t = 60)) %>% fin()
+}
+```
+
+```{r css, results='asis'}
+cat('<style>
+body{font-family:Lato,Helvetica,Arial,sans-serif;color:#14212b}
+.main-container{max-width:1280px}
+h1.title{font-weight:700} h2{margin-top:44px;border-bottom:2px solid #e1e6ea;padding-bottom:6px}
+.note{background:#eef6fb;border-left:4px solid #2a78d6;padding:10px 14px;margin:14px 0;border-radius:4px;font-size:14px}
+.warn{background:#fdf3e1;border-left:4px solid #e0a22b;padding:10px 14px;margin:14px 0;border-radius:4px;font-size:14px}
+.cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:14px 0}@media(max-width:1000px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.card{border:1px solid #dde3e7;border-radius:10px;padding:12px 14px;background:#fff}
+.card .lv{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#0f6e63;font-weight:700}
+.card .v{font-size:23px;font-weight:700;line-height:1.2} .card .l{font-size:12.5px;color:#4a5b68}
+.card .d{font-size:12px;color:#74838f}
+.toc-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:16px 0}
+@media(max-width:1000px){.toc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.toc-grid{grid-template-columns:1fr}}
+.toc-col{border:1px solid #dde3e7;border-radius:10px;background:#fff;padding:12px 14px;position:relative}
+.toc-col h4{margin:0 0 2px;color:#0f6e63;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.toc-col h3{margin:0 0 8px;font-size:16px;font-weight:700}
+.toc-col ul{list-style:none;padding:0;margin:0}
+.toc-col li{font-size:13px;padding:4px 0 4px 18px;position:relative;line-height:1.35}
+.toc-col li::before{content:"";position:absolute;left:0;top:9px;width:10px;height:10px;border-radius:50%}
+.s-Observed::before{background:#1a7f4b}.s-Proxy::before{background:#e0a22b}.s-Not::before{background:#c9d1d6;border:1px dashed #74838f}
+.key{font-size:12.5px;margin:6px 0 0}.key span{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 12px;vertical-align:middle}
+.tabset-pills>.nav-pills>li>a{font-size:13px}
+</style>')
+```
+
+<div class="warn"><strong>Read this first.</strong> The programme logic below is a <em>proposed</em> causal pathway, not a finding established by the dataset. The data covers state-level scheme administration figures for `r scope_label`. Long-term impacts need additional household and asset-level evidence. Associations shown in the analysis sections are descriptive and do not identify causal effects.</div>
+
+```{r cards, results='asis'}
+card <- function(lv, v, l, d) sprintf('<div class="card"><div class="lv">%s</div><div class="v">%s</div><div class="l">%s</div><div class="d">%s</div></div>', lv, v, l, d)
+chg <- function(a, b, pp = FALSE) if (pp) sprintf("%+.1f pp vs FY %s", b - a, first_yr) else sprintf("%+.1f%% vs FY %s", (b - a) / a * 100, first_yr)
+cat('<div class="cards">',
+  card("01 Inputs", comma(n2$B, 1), "Approved labour budget (lakh persondays)", chg(n1$B, n2$B)),
+  card("02 Activities", sprintf("%.1f%%", n2$ut), "Fund utilisation", chg(n1$ut, n2$ut, TRUE)),
+  card("03 Outputs", comma(n2$PD, 1), "Persondays generated (lakh)", chg(n1$PD, n2$PD)),
+  card("04 Outcomes", sprintf("%.1f", n2$dph), "Average days per household (guarantee: 100)", chg(n1$dph, n2$dph)),
+  card("05 Impact (proxy)", paste0("Rs ", comma(n2$wph, 1)), "Wages paid per household worked", chg(n1$wph, n2$wph)),
+  '</div>', sep = "\n")
+```
+
+# 1. Programme logic
+
+The five levels below are the proposed theory of change. The coloured dot on each element shows whether the dataset can speak to it.
+
+```{r toc_table}
+toc <- tribble(
+ ~stage, ~item, ~status, ~indicator, ~key, ~note,
+ "01 · Inputs", "Government funding and approved labour budgets", "Observed", "Approved labour budget; funds available; central release", "B", "Direct fields in the dataset",
+ "01 · Inputs", "Administrative staff and Panchayat capacity", "Proxy", "Administration share of spend", "adp", "Staff numbers not observed; admin cost share is a rough proxy",
+ "01 · Inputs", "Worksite infrastructure", "Not", "Not in dataset", NA, "Needs worksite-level data",
+ "01 · Inputs", "Technical and institutional support", "Proxy", "Spend through e-FMS", "efms", "Digital payment coverage as a proxy for systems support",
+ "02 · Activities", "Registration and job card issuance", "Not", "Not in dataset", NA, "Job-card data not in this panel",
+ "02 · Activities", "Identification and planning of works", "Observed", "Works taken up (new + spillover)", "wt", "Direct field",
+ "02 · Activities", "Processing employment demand", "Not", "Not in dataset", NA, "District demand tables (R5.1.1) were excluded from this panel",
+ "02 · Activities", "Allocation of work", "Proxy", "Households worked", "hh", "Households that received work; demand is not observed",
+ "02 · Activities", "Execution of public works", "Observed", "Works completion rate", "comp", "Completed works divided by works taken up",
+ "02 · Activities", "Processing wage payments", "Observed", "Payments generated within 15 days", "p15", "Direct field",
+ "03 · Outputs", "Households and individuals employed", "Observed", "Households worked (lakh)", "hh", "Direct field",
+ "03 · Outputs", "Person-days generated", "Observed", "Persondays generated (lakh)", "PD", "Direct field",
+ "03 · Outputs", "Women's share of person-days", "Observed", "Women share of persondays", "women", "Direct field",
+ "03 · Outputs", "SC/ST participation", "Observed", "SC + ST share of persondays", "scst", "Direct fields",
+ "03 · Outputs", "Works completed", "Observed", "Completed works (lakh)", "wcL", "Direct field",
+ "04 · Outcomes", "Greater access to wage employment", "Proxy", "Average days per household", "dph", "Supply side only; unmet demand not observed",
+ "04 · Outcomes", "Increased women's participation", "Observed", "Women share of persondays", "women", "Read as change over time",
+ "04 · Outcomes", "More sustained employment opportunities", "Proxy", "Households reaching 100 days", "h100s", "Share of households worked",
+ "04 · Outcomes", "Timelier wage processing", "Observed", "Payments generated within 15 days", "p15", "Direct field",
+ "04 · Outcomes", "Improved implementation efficiency", "Proxy", "Fund utilisation", "ut", "Also see administration share and completion rate",
+ "05 · Long-term impact", "Improved rural livelihood security", "Proxy", "Wages paid per household worked", "wph", "Income transfer only; not livelihood outcomes",
+ "05 · Long-term impact", "Greater economic participation of women", "Proxy", "Women share of persondays", "women", "Participation only; not earnings or autonomy",
+ "05 · Long-term impact", "Improved household economic security", "Not", "Not in dataset", NA, "Needs household income, consumption or asset surveys",
+ "05 · Long-term impact", "Strengthened rural asset base", "Proxy", "Completed works; agriculture & allied spend", "agri", "Counts of works, not asset quality or use")
+# attach first / latest values
+vals <- function(k) if (is.na(k)) c(NA, NA) else c(n1[[k]], n2[[k]])
+toc <- toc %>% rowwise() %>% mutate(v1 = vals(key)[1], v2 = vals(key)[2]) %>% ungroup()
+```
+
+```{r toc_visual, results='asis'}
+stages <- list("01 · Inputs" = c("Resources provided", "Inputs"), "02 · Activities" = c("Programme implementation", "Activities"),
+               "03 · Outputs" = c("Immediate programme results", "Outputs"), "04 · Outcomes" = c("Expected changes", "Outcomes"),
+               "05 · Long-term impact" = c("Intended development impact", "Long-term impact"))
+cols <- vapply(names(stages), function(s) {
+  items <- toc %>% filter(stage == s)
+  lis <- paste0('<li class="s-', items$status, '">', items$item, '</li>', collapse = "")
+  sprintf('<div class="toc-col"><h4>%s</h4><h3>%s</h3><ul>%s</ul></div>', s, stages[[s]][1], lis)
+}, character(1))
+cat('<div class="toc-grid">', cols, '</div>',
+    '<div class="key"><b>Coverage:</b><span style="background:#1a7f4b"></span>Observed directly<span style="background:#e0a22b"></span>Proxy only<span style="background:#c9d1d6;border:1px dashed #74838f"></span>Not in dataset</div>', sep = "\n")
+```
+
+## Indicator coverage matrix
+
+Search, sort or filter. Values are for `r scope_label`.
+
+```{r coverage_dt}
+cov <- toc %>% transmute(
+  Stage = stage, `Theory-of-change element` = item,
+  Coverage = recode(status, Observed = "Observed", Proxy = "Proxy only", Not = "Not in dataset"),
+  `Indicator used` = indicator,
+  !!paste("FY", first_yr) := ifelse(is.na(key), NA, round(v1, 1)),
+  !!paste("FY", latest) := ifelse(is.na(key), NA, round(v2, 1)),
+  Note = note)
+datatable(cov, rownames = FALSE, options = list(pageLength = 25, dom = "ftip", scrollX = TRUE, autoWidth = FALSE)) %>%
+  formatStyle("Coverage", backgroundColor = styleEqual(c("Observed", "Proxy only", "Not in dataset"), c("#e3f3ea", "#fbf0d9", "#eceff1")))
+```
+
+<div class="note"><strong>Reading the coverage.</strong> The dataset observes the supply side of the scheme (funds, works, persondays, payments). It does not observe job-card registration, employment demand, worksite conditions or any household-level outcome. Those links in the chain are untestable here and are shown as gaps instead of being filled with weak proxies.</div>
+
+# 2. Indicators by level
+
+Each level has three views: a national view, a state explorer (use the dropdown to switch indicator; click a state in the legend to hide it, double-click to isolate), and a state × year heatmap.
+
+## 01 · Inputs {.tabset .tabset-pills}
+
+### National view
+
+```{r in_nat}
+plot_ly(nat_df, x = ~fy_lab(fy), y = ~B, type = "bar", name = "Approved labour budget", marker = list(color = blue),
+        hovertemplate = "%{x}<br>Approved budget: %{y:,.0f} lakh persondays<extra></extra>", height = 420) %>%
+  add_bars(y = ~PD, name = "Persondays generated", marker = list(color = orange), customdata = ~bp,
+           hovertemplate = "%{x}<br>Persondays: %{y:,.0f} lakh<br>Budget achieved: %{customdata:.1f}%<extra></extra>") %>%
+  layout(barmode = "group", yaxis = list(title = "Lakh persondays"), xaxis = list(title = "")) %>% fin()
+```
+
+### State explorer
+
+```{r in_exp}
+explorer(c("B", "avCr", "relCr"))
+```
+
+### Heatmap
+
+```{r in_heat}
+heat(c("B", "avCr", "relCr"))
+```
+
+## 02 · Activities {.tabset .tabset-pills}
+
+### National view
+
+Works taken up split into completed and ongoing works (the two add up to works taken up).
+
+```{r act_nat}
+plot_ly(nat_df, x = ~fy_lab(fy), y = ~wcL, type = "bar", name = "Completed", marker = list(color = blue), customdata = ~comp,
+        hovertemplate = "%{x}<br>Completed: %{y:.2f} lakh<br>Completion rate: %{customdata:.1f}%<extra></extra>", height = 420) %>%
+  add_bars(y = ~wo, name = "Ongoing", marker = list(color = orange),
+           hovertemplate = "%{x}<br>Ongoing: %{y:.2f} lakh<extra></extra>") %>%
+  layout(barmode = "stack", yaxis = list(title = "Lakh works"), xaxis = list(title = "")) %>% fin()
+```
+
+### State explorer
+
+```{r act_exp}
+explorer(c("comp", "ut", "wt", "wo", "nil", "p15", "efms"))
+```
+
+### Heatmap
+
+```{r act_heat}
+heat(c("ut", "comp", "p15", "efms", "nil"))
+```
+
+## 03 · Outputs {.tabset .tabset-pills}
+
+### State view
+
+Persondays in the chosen year, split into women's persondays and the rest.
+
+```{r out_nat}
+yrs <- unique(st_df$fy)
+ord <- st_df %>% filter(fy == latest) %>% arrange(PD) %>% pull(state)
+p <- plot_ly(height = 520)
+for (i in seq_along(yrs)) {
+  dd <- st_df %>% filter(fy == yrs[i]) %>% mutate(wm = PD * women / 100, ot = PD - wm)
+  p <- p %>% add_bars(data = dd, y = ~state, x = ~wm, orientation = "h", name = "Women", legendgroup = "w", showlegend = (i == 1),
+        visible = (yrs[i] == latest), marker = list(color = orange), customdata = ~women,
+        hovertemplate = "<b>%{y}</b><br>Women persondays: %{x:,.0f} lakh (%{customdata:.1f}% of total)<extra></extra>") %>%
+    add_bars(data = dd, y = ~state, x = ~ot, orientation = "h", name = "Other", legendgroup = "o", showlegend = (i == 1),
+        visible = (yrs[i] == latest), marker = list(color = blue),
+        hovertemplate = "<b>%{y}</b><br>Other persondays: %{x:,.0f} lakh<extra></extra>")
+}
+btn <- lapply(seq_along(yrs), function(i) list(method = "update", label = fy_lab(yrs[i]),
+         args = list(list(visible = rep(seq_along(yrs) == i, each = 2)))))
+p %>% layout(barmode = "stack", xaxis = list(title = "Lakh persondays"), yaxis = list(title = "", categoryorder = "array", categoryarray = ord),
+             updatemenus = list(list(type = "buttons", direction = "right", buttons = btn, x = 0, y = 1.12, xanchor = "left",
+                                     active = which(yrs == latest) - 1)), margin = list(t = 60)) %>% fin()
+```
+
+### State explorer
+
+```{r out_exp}
+explorer(c("PD", "hh", "ind", "women", "scst", "sc", "st", "wcL"))
+```
+
+### Heatmap
+
+```{r out_heat}
+heat(c("PD", "hh", "women", "scst", "wcL"))
+```
+
+## 04 · Outcomes {.tabset .tabset-pills}
+
+### Benchmark gap
+
+Each bar is the attainment of a scheme norm (100 = norm met). For the administration cap the index is the cap divided by actual share, so lower spending on administration scores higher. Pick a year with the buttons.
+
+```{r oc_bench}
+bm <- tribble(~key, ~label, ~target, ~kind, ~tlab,
+  "dph", "Days per household", 100, "min", "100-day guarantee",
+  "bp", "Budget achieved", 100, "min", "100% of approved budget",
+  "ut", "Fund utilisation", 100, "min", "100% of funds",
+  "women", "Women share of persondays", 33, "min", "33% minimum",
+  "p15", "Payments within 15 days", 100, "min", "15-day rule",
+  "efms", "Spend through e-FMS", 100, "min", "100% e-payment",
+  "adp", "Administration share (lower is better)", 6, "max", "6% cap")
+yrs <- nat_df$fy
+p <- plot_ly(height = 430)
+for (i in seq_along(yrs)) {
+  r <- filter(nat_df, fy == yrs[i])
+  v <- vapply(bm$key, function(k) r[[k]], numeric(1))
+  att <- ifelse(bm$kind == "min", v / bm$target * 100, ifelse(v <= bm$target, 100, bm$target / v * 100))
+  p <- p %>% add_bars(x = att, y = bm$label, orientation = "h", name = fy_lab(yrs[i]), visible = (yrs[i] == latest), showlegend = FALSE,
+        marker = list(color = ifelse(att >= 90, "#1a7f4b", ifelse(att >= 60, "#e0a22b", "#c0392b"))),
+        customdata = cbind(round(v, 1), bm$tlab),
+        hovertemplate = "<b>%{y}</b><br>Value: %{customdata[0]}<br>Norm: %{customdata[1]}<br>Attainment: %{x:.0f}%<extra></extra>")
+}
+btn <- lapply(seq_along(yrs), function(i) list(method = "update", label = fy_lab(yrs[i]), args = list(list(visible = seq_along(yrs) == i))))
+p %>% layout(xaxis = list(title = "Attainment of norm (%)", range = c(0, 170)), yaxis = list(title = "", autorange = "reversed"),
+  shapes = list(list(type = "line", x0 = 100, x1 = 100, y0 = 0, y1 = 1, yref = "paper", line = list(dash = "dash", color = grey))),
+  updatemenus = list(list(type = "buttons", direction = "right", buttons = btn, x = 0, y = 1.14, xanchor = "left", active = which(yrs == latest) - 1)),
+  margin = list(t = 60)) %>% fin()
+```
+
+Colour: green = 90% or more of the norm, amber = 60-90%, red = below 60%. The norms (100 days, 33% women, 6% administration cap, 15-day payments) are scheme rules, not values from the workbook; verify them against the MGNREGA guidelines.
+
+### State explorer
+
+```{r oc_exp}
+explorer(c("dph", "h100s", "women", "p15", "adp", "ut", "comp", "acp"))
+```
+
+### Heatmap
+
+```{r oc_heat}
+heat(c("dph", "h100s", "women", "p15", "adp", "ut", "comp"))
+```
+
+## 05 · Long-term impact (proxies only) {.tabset .tabset-pills}
+
+<div class="warn">These indicators are <strong>not</strong> measures of impact. Wage payments are an income transfer, and the share of agriculture spend or the number of completed works says nothing about asset quality or use. Household income, consumption and asset evidence would be needed to speak to livelihood security.</div>
+
+### National view
+
+```{r im_nat}
+plot_ly(nat_df, x = ~fy_lab(fy), y = ~wph, type = "bar", name = "Wages per household worked", marker = list(color = blue), height = 400,
+        customdata = ~wgCr, hovertemplate = "%{x}<br>Wages per household worked: Rs %{y:,.0f}<br>Total wages: Rs %{customdata:,.0f} crore<extra></extra>") %>%
+  layout(yaxis = list(title = "Rs per household worked"), xaxis = list(title = "")) %>% fin()
+```
+
+Wages per household combine the daily wage rate and days worked, so a rising wage rate can offset fewer days worked.
+
+### State explorer
+
+```{r im_exp}
+explorer(c("wph", "wgCr", "agri", "women", "wcL"))
+```
+
+### Heatmap
+
+```{r im_heat}
+heat(c("wph", "wgCr", "agri", "women"))
+```
+
+# 3. Testing the links in the chain
+
+## Cross-state animation
+
+Press play, or drag the slider. Each bubble is a state, sized by persondays. States right of the dashed line used more than their approved budget.
+
+```{r bubble}
+bub <- st_df
+xr <- range(bub$bp, na.rm = TRUE); yr <- range(bub$dph, na.rm = TRUE)
+plot_ly(bub, x = ~bp, y = ~dph, size = ~PD, color = ~state, colors = pal, frame = ~fy, text = ~state, type = "scatter", mode = "markers",
+        sizes = c(14, 60), marker = list(sizemode = "diameter", line = list(width = 1.5, color = "white"), opacity = 0.85),
+        hovertemplate = "<b>%{text}</b><br>Budget achieved: %{x:.1f}%<br>Days per household: %{y:.1f}<br>Persondays: %{marker.size:,.0f}<extra></extra>",
+        height = 560) %>%
+  layout(xaxis = list(title = "Budget achieved (% of approved labour budget)", range = c(xr[1] - 10, xr[2] + 10)),
+         yaxis = list(title = "Average days per household", range = c(0, max(yr) + 10)),
+         shapes = list(list(type = "line", x0 = 100, x1 = 100, y0 = 0, y1 = 1, yref = "paper", line = list(dash = "dash", color = grey))),
+         showlegend = FALSE) %>%
+  animation_opts(frame = 900, transition = 500, redraw = FALSE) %>%
+  animation_slider(currentvalue = list(prefix = "FY ", font = list(size = 16))) %>% fin()
+```
+
+## Associations along the chain {.tabset .tabset-pills}
+
+### Correlation matrix
+
+Pooled state-year correlations (n = state × year observations) between indicators ordered along the chain. Size variables are in logs. Pooled correlations mix cross-state differences in size with changes over time, so use the fixed-effects results for the within-state view.
+
+```{r corr}
+cv <- c(lnB = "ln Approved budget", lnAv = "ln Funds available", ut = "Fund utilisation", comp = "Works completion", lnHH = "ln Households worked",
+        lnPD = "ln Persondays", dph = "Days per household", women = "Women share", scst = "SC + ST share", p15 = "Payments in 15 days",
+        adp = "Administration share", h100s = "100-day households", wph = "Wages per household", agri = "Agri & allied spend")
+cd <- st_df %>% transmute(lnB = log(B), lnAv = log(av), ut, comp, lnHH = log(hh), lnPD = log(PD), dph, women, scst, p15, adp, h100s, wph, agri)
+cm <- cor(cd, use = "pairwise.complete.obs")
+plot_ly(x = unname(cv), y = unname(cv), z = cm, type = "heatmap", colorscale = "RdBu", reversescale = TRUE, zmin = -1, zmax = 1,
+        texttemplate = "%{z:.2f}", textfont = list(size = 10), height = 640,
+        hovertemplate = "%{y}<br>%{x}<br>Correlation: %{z:.2f}<extra></extra>") %>%
+  layout(yaxis = list(autorange = "reversed", title = ""), xaxis = list(title = "", tickangle = -40), margin = list(b = 140)) %>% fin()
+```
+
+### Fixed-effects regressions
+
+Two-way fixed-effects models (state and year effects) on the state-year panel, all variables standardised so coefficients read as "one standard deviation change in X is associated with a β standard deviation change in Y, within the same state, net of year shocks". Standard errors are clustered by state with a t-distribution on G - 1 degrees of freedom.
+
+```{r fe}
+reg_df <- st_df %>% mutate(lnPD = log(PD), lnB = log(B), lnwr = log(wr))
+fit_fe <- function(y, xs, label) {
+  dat <- reg_df %>% select(state, fy, all_of(c(y, xs))) %>% na.omit()
+  dat[c(y, xs)] <- lapply(dat[c(y, xs)], function(v) as.numeric(scale(v)))
+  m  <- lm(reformulate(c(xs, "factor(state)", "factor(fy)"), response = y), data = dat)
+  m0 <- lm(reformulate(c("factor(state)", "factor(fy)"), response = y), data = dat)
+  vc <- sandwich::vcovCL(m, cluster = dat$state, type = "HC1")
+  b <- coef(m)[xs]; se <- sqrt(diag(vc))[xs]; G <- n_distinct(dat$state)
+  tibble(Model = label, term = xs, beta = unname(b), se = unname(se),
+         lo = beta - qt(.975, G - 1) * se, hi = beta + qt(.975, G - 1) * se,
+         p = 2 * pt(-abs(beta / se), df = G - 1), N = nrow(dat), within_R2 = 1 - sum(resid(m)^2) / sum(resid(m0)^2))
+}
+lab <- c(lnB = "ln approved budget", ut = "Fund utilisation", comp = "Works completion rate", adp = "Administration share",
+         lnwr = "ln wage rate", efms = "e-FMS share")
+res <- bind_rows(
+  fit_fe("lnPD",  c("lnB", "ut"),               "M1 Inputs → Outputs: ln persondays"),
+  fit_fe("dph",   c("lnB", "ut", "comp", "adp"), "M2 Inputs/Activities → Outputs: days per household"),
+  fit_fe("h100s", c("lnB", "ut", "comp"),        "M3 Inputs/Activities → Outcome: households reaching 100 days"),
+  fit_fe("women", c("lnwr", "ut"),               "M4 Wage rate → Outcome: women's share"),
+  fit_fe("p15",   c("efms", "adp", "ut"),        "M5 Activities → Outcome: payments within 15 days")) %>%
+  mutate(Regressor = lab[term], sig = p < 0.05, row = paste0(substr(Model, 1, 2), " · ", Regressor))
+coefp <- res %>% arrange(desc(row))
+plot_ly(coefp, x = ~beta, y = ~factor(row, levels = unique(row)), type = "scatter", mode = "markers",
+        error_x = list(type = "data", symmetric = FALSE, array = ~(hi - beta), arrayminus = ~(beta - lo), color = grey, thickness = 1.5),
+        color = ~sig, colors = c("FALSE" = grey, "TRUE" = blue), height = 520,
+        marker = list(size = 10), text = ~Model,
+        hovertemplate = "<b>%{text}</b><br>%{y}<br>β = %{x:.2f}<extra></extra>") %>%
+  layout(xaxis = list(title = "Standardised coefficient β (95% CI, state-clustered)", zeroline = TRUE),
+         yaxis = list(title = ""), showlegend = FALSE, margin = list(l = 260),
+         shapes = list(list(type = "line", x0 = 0, x1 = 0, y0 = 0, y1 = 1, yref = "paper", line = list(color = ink, width = 1)))) %>% fin()
+```
+
+Blue = significant at 5%, grey = not.
+
+```{r fe_table}
+res %>% transmute(Model, Regressor, Beta = round(beta, 3), `Std. error` = round(se, 3), `95% CI` = sprintf("[%.2f, %.2f]", lo, hi),
+                  `p-value` = round(p, 3), N, `Within R2` = round(within_R2, 2)) %>%
+  datatable(rownames = FALSE, options = list(pageLength = 15, dom = "ftip", scrollX = TRUE)) %>%
+  formatStyle("p-value", backgroundColor = styleInterval(0.05, c("#e3f3ea", "white")))
+```
+
+<div class="warn"><strong>Caution.</strong> With about 14 states and 4 years these models are small-sample and descriptive. Clustered standard errors with few clusters can be too optimistic, and omitted factors (state politics, demand, rainfall, administrative reform) are not controlled. Treat them as consistency checks on the proposed logic, not as estimates of causal effects.</div>
+
+### Persondays decomposition
+
+Persondays = households worked × average days per household. The change in persondays between FY `r first_yr` and FY `r latest` is split into a **households (extensive)** effect and a **days per household (intensive)** effect using the log-mean Divisia method, so the two parts add up exactly to the total change.
+
+```{r decomp}
+a <- st_df %>% filter(fy == first_yr) %>% select(state, PD0 = PD, hh0 = hh, d0 = dph)
+b <- st_df %>% filter(fy == latest) %>% select(state, PD1 = PD, hh1 = hh, d1 = dph)
+dc <- inner_join(a, b, by = "state") %>% filter(PD0 > 0, PD1 > 0, hh0 > 0, hh1 > 0) %>%
+  mutate(L = (PD1 - PD0) / log(PD1 / PD0), Households = L * log(hh1 / hh0), `Days per household` = L * log(d1 / d0), Total = PD1 - PD0) %>%
+  arrange(Total)
+tot <- c(sum(dc$Households), sum(dc$`Days per household`), sum(dc$Total))
+plot_ly(dc, y = ~state, x = ~Households, type = "bar", orientation = "h", name = "Households (extensive)", marker = list(color = blue), height = 520,
+        hovertemplate = "<b>%{y}</b><br>Households effect: %{x:,.0f} lakh persondays<extra></extra>") %>%
+  add_bars(x = ~`Days per household`, name = "Days per household (intensive)", marker = list(color = orange),
+           hovertemplate = "<b>%{y}</b><br>Days effect: %{x:,.0f} lakh persondays<extra></extra>") %>%
+  add_markers(x = ~Total, name = "Total change", marker = list(color = ink, symbol = "diamond", size = 9),
+              hovertemplate = "<b>%{y}</b><br>Total change: %{x:,.0f} lakh persondays<extra></extra>") %>%
+  layout(barmode = "relative", xaxis = list(title = "Change in persondays (lakh)"), yaxis = list(title = "", categoryorder = "array", categoryarray = dc$state)) %>% fin()
+```
+
+Across the states shown, persondays changed by **`r comma(tot[3], 1)` lakh**: **`r comma(tot[1], 1)` lakh** from fewer or more households and **`r comma(tot[2], 1)` lakh** from changes in days per household.
+
+### Convergence
+
+**Sigma convergence** asks whether states are becoming more alike (a falling coefficient of variation across states). **Beta convergence** asks whether states that started low improved faster (a negative slope of change on initial level).
+
+```{r sigma}
+ck <- c("dph", "h100s", "women", "ut", "p15", "wr")
+mk <- mt_tbl[match(ck, mt_tbl$key), ]
+cvdf <- st_df %>% group_by(fy) %>% summarise(across(all_of(ck), ~ sd(.x, na.rm = TRUE) / mean(.x, na.rm = TRUE) * 100), .groups = "drop")
+p <- plot_ly(height = 400)
+for (i in seq_along(ck)) p <- add_trace(p, x = fy_lab(cvdf$fy), y = cvdf[[ck[i]]], type = "scatter", mode = "lines+markers", name = mk$label[i],
+      visible = (i == 1), line = list(color = blue, width = 3), marker = list(size = 9, color = blue), showlegend = FALSE,
+      hovertemplate = paste0("%{x}<br>CV of ", mk$label[i], ": %{y:.1f}%<extra></extra>"))
+btn <- lapply(seq_along(ck), function(i) list(method = "update", label = mk$label[i], args = list(list(visible = seq_along(ck) == i),
+        list(yaxis = list(title = paste0("Coefficient of variation: ", mk$label[i], " (%)"), rangemode = "tozero")))))
+p %>% layout(updatemenus = list(list(type = "dropdown", buttons = btn, x = 0, y = 1.18, xanchor = "left")),
+             yaxis = list(title = paste0("Coefficient of variation: ", mk$label[1], " (%)"), rangemode = "tozero"), xaxis = list(title = ""),
+             margin = list(t = 60)) %>% fin()
+```
+
+```{r beta}
+bt <- inner_join(st_df %>% filter(fy == first_yr) %>% select(state, x0 = dph, PD0 = PD),
+                 st_df %>% filter(fy == latest) %>% select(state, x1 = dph), by = "state") %>% mutate(chg = x1 - x0)
+fitb <- lm(chg ~ x0, data = bt); sb <- summary(fitb)$coefficients
+xs <- seq(min(bt$x0), max(bt$x0), length.out = 20)
+plot_ly(bt, x = ~x0, y = ~chg, type = "scatter", mode = "markers+text", text = ~state, textposition = "top right", height = 460,
+        marker = list(size = 11, color = blue, line = list(width = 1.5, color = "white")),
+        hovertemplate = "<b>%{text}</b><br>FY initial: %{x:.1f} days<br>Change: %{y:+.1f} days<extra></extra>", name = "States") %>%
+  add_lines(x = xs, y = predict(fitb, data.frame(x0 = xs)), inherit = FALSE, line = list(color = orange, dash = "dash"), name = "OLS fit", hoverinfo = "skip") %>%
+  layout(xaxis = list(title = paste0("Days per household, FY ", first_yr)), yaxis = list(title = paste0("Change in days per household to FY ", latest)),
+         showlegend = FALSE,
+         annotations = list(list(x = 1, y = 1, xref = "paper", yref = "paper", showarrow = FALSE, xanchor = "right", yanchor = "top",
+           text = sprintf("slope = %.2f (p = %.3f), n = %d", sb[2, 1], sb[2, 4], nrow(bt))))) %>% fin()
+```
+
+# 4. State profiles and data
+
+## State profile {.tabset .tabset-pills}
+
+### Relative position (radar)
+
+For the latest year, each axis shows the state's percentile rank among states (100 = best, 50 = middle). This is relative position, not attainment of a norm. For administration share, a lower share ranks higher. Use the dropdown to change state.
+
+```{r radar}
+rk <- c("dph", "bp", "ut", "comp", "women", "p15", "h100s", "wph", "adp")
+rl <- mt_tbl$label[match(rk, mt_tbl$key)]
+lt <- st_df %>% filter(fy == latest)
+pr <- sapply(rk, function(k) { x <- lt[[k]]; r <- (rank(x, ties.method = "average") - 0.5) / length(x) * 100; if (k == "adp") 100 - r else r })
+rownames(pr) <- lt$state
+p <- plot_ly(type = "scatterpolar", mode = "lines", height = 540)
+p <- add_trace(p, r = c(rep(50, length(rk)), 50), theta = c(rl, rl[1]), name = "Median state", line = list(color = grey, dash = "dash"), hoverinfo = "skip")
+first_s <- rownames(pr)[1]
+for (s in rownames(pr)) {
+  p <- add_trace(p, r = c(pr[s, ], pr[s, 1]), theta = c(rl, rl[1]), name = s, fill = "toself", fillcolor = "rgba(42,120,214,0.25)",
+        line = list(color = blue, width = 2.5), visible = (s == first_s), customdata = c(unlist(lapply(rk, function(k) lt[[k]][lt$state == s])), NA),
+        hovertemplate = "%{theta}<br>Percentile: %{r:.0f}<br>Value: %{customdata:,.1f}<extra></extra>")
+}
+btn <- lapply(seq_along(rownames(pr)), function(i) list(method = "update", label = rownames(pr)[i],
+        args = list(list(visible = c(TRUE, seq_len(nrow(pr)) == i)), list(title = paste0(rownames(pr)[i], ", FY ", latest)))))
+p %>% layout(polar = list(radialaxis = list(range = c(0, 100), tickvals = c(25, 50, 75, 100))),
+             updatemenus = list(list(type = "dropdown", buttons = btn, x = 0, y = 1.1, xanchor = "left")), showlegend = FALSE,
+             title = list(text = paste0(first_s, ", FY ", latest), x = 0.5), margin = list(t = 90)) %>% fin()
+```
+
+### Full data table
+
+Search by state or year, and sort any column.
+
+```{r datatable}
+cols <- c("PD", "B", "bp", "hh", "dph", "h100s", "women", "scst", "wr", "wph", "ut", "adp", "comp", "p15", "efms", "agri", "nil")
+tbl <- st_df %>% select(State = state, FY = fy, all_of(cols)) %>% arrange(State, FY)
+names(tbl)[-(1:2)] <- paste0(mt_tbl$label[match(cols, mt_tbl$key)], " (", mt_tbl$unit[match(cols, mt_tbl$key)], ")")
+tbl[-(1:2)] <- lapply(tbl[-(1:2)], round, 1)
+datatable(tbl, rownames = FALSE, 
+          options = list(dom = "frtip", pageLength = 15, scrollX = TRUE))
+```
+
+## Method and limits
+
+* **Aggregation:** amounts are summed across states. Rates are weighted: women, SC, ST share and wage rate by persondays; payments within 15 days, e-FMS and agriculture share by expenditure. Utilisation, budget achieved, days per household, completion rate and administration share are recomputed from the summed amounts.
+* **Budget units:** the workbook labels the approved labour budget as Rs lakh, but it reconciles exactly with persondays in lakh (persondays ÷ budget = "% of total labour budget"), so it is treated as lakh persondays.
+* **Nominal values:** wage rates and expenditure are in current rupees, with no inflation adjustment, so changes over time overstate real growth.
+* **Values above 100%** (utilisation, budget achieved) are kept as reported.
+* **Not observed:** job-card registration, employment demand, worksite infrastructure, staff capacity and any household-level outcome. District-level demand tables were not part of this panel.
+* **Inference:** the regressions and decomposition describe the data; they do not establish that inputs cause outcomes.
