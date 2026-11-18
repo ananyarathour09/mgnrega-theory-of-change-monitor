@@ -47,7 +47,7 @@ R packages: readxl, dplyr, tidyr, plotly, DT, htmltools, sandwich, scales, knitr
 - **Budget units:** the workbook labels the approved labour budget as ₹ lakh, but it reconciles exactly with person-days in lakh (person-days ÷ budget = "% of total labour budget"), so it is treated as lakh person-days.
 - **Nominal values:** wages and expenditure are in current rupees, not adjusted for inflation.
 - **Values above 100%** (utilisation, budget achieved) are kept as reported.
-- **Norms** used for the benchmark view (100 days per household, 33% women, 6% administration cap, 15-day payment rule) are scheme rules, not values from the workbook. Check them against the MGNREGA guidelines.
+- **Norms** used for the benchmark view (100 days per household, 33% women, 6% administration cap, 15-day payment rule) are scheme rules.
 
 ## 6. Limits of the evidence
 
