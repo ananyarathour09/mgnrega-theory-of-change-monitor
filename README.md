@@ -2,9 +2,8 @@
 
 An interactive dashboard, written in R, that organises state-level MGNREGA data (15 states, FY 2022-23 to 2025-26) around a five-level **theory of change** and tests how far the data can support each link in the chain.
 
-**Live dashboard:** `https://YOUR-USERNAME.github.io/mgnrega-toc-monitor/` (after you enable GitHub Pages, see below)
+**Live dashboard:** `https://ananyarathour09.github.io/mgnrega-theory-of-change-monitor/` 
 
-![Overview](screenshots/1_theory_of_change_overview.png)
 
 ## 1. The proposed theory of change
 
