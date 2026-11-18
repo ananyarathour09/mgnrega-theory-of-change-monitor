@@ -20,7 +20,7 @@ These are **proposed causal pathways, not findings established by the dataset.**
 ## 2. What the dashboard contains
 
 1. **Programme logic and evidence map.** Each element of the theory of change is marked *observed directly*, *proxy only* or *not in dataset*, with the indicator used and its FY 2022-23 and FY 2025-26 values (searchable table).
-2. **Indicators by level.** For every level: a national view, a state explorer (dropdown to switch indicator, click legend to hide or isolate states) and a state × year heatmap.
+2. **Indicators by level.**  a national view, a state explorer (dropdown to switch indicator, click legend to hide or isolate states) and a state × year heatmap.
 3. **Outcome benchmark gap.** Attainment of scheme norms (100 days, 33% women, 6% administration cap, 15-day payments) with year buttons.
 4. **Testing the links in the chain.**
    - Animated cross-state bubble chart (budget achieved vs days per household).
