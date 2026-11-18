@@ -33,29 +33,14 @@ These are **proposed causal pathways, not findings established by the dataset.**
 ## 3. How to run it
 
 1. Install R and RStudio.
-2. Keep this folder structure:
-   ```
-   mgnrega-toc-monitor/
-   ├── MGNREGA_ToC_dashboard.Rmd    (the dashboard code)
-   ├── build_dashboard.R            (installs packages and builds the page)
-   ├── index.html                   (the built dashboard)
-   ├── data/MGNREGA_Master_Dataset.xlsx
-   └── screenshots/
-   ```
-3. In RStudio, open `MGNREGA_ToC_dashboard.Rmd` and click **Knit**, or run `source("build_dashboard.R")`.
-4. Settings are at the top of the Rmd (chunk `setup`):
+2. In RStudio, open `MGNREGA_ToC_dashboard.Rmd` and click **Knit**, or run `source("build_dashboard.R")`.
+3. Settings are at the top of the Rmd (chunk `setup`):
    - `include_wb <- FALSE` keeps West Bengal out (flagged source data); set `TRUE` to include it.
    - `first_yr` and `latest` set the comparison years.
 
 R packages: readxl, dplyr, tidyr, plotly, DT, htmltools, sandwich, scales, knitr, rmarkdown.
 
-## 4. Publish on GitHub Pages
-
-1. Create a public repository and upload all files (including `index.html`).
-2. Go to **Settings → Pages**, choose **Deploy from a branch**, branch **main**, folder **/ (root)**, then **Save**.
-3. After a minute your dashboard is live at `https://YOUR-USERNAME.github.io/REPO-NAME/`.
-
-## 5. Method notes
+## 4. Method notes
 
 - **Data:** MGNREGA Master Dataset (state-at-a-glance MIS), 15 states × 4 financial years = 60 state-year rows.
 - **Aggregation:** amounts are summed across states. Women, SC, ST share and wage rate are weighted by person-days. Payments within 15 days, e-FMS share and agriculture share are weighted by expenditure. Budget achieved, days per household, utilisation, completion rate and administration share are recomputed from the summed amounts.
